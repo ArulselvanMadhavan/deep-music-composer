@@ -31,8 +31,7 @@ def getNoteRangeAndTicks(files_dir, res_factor=1):
 
 
 def fromMidiCreatePianoRoll(files_dir, ticks, lowest_note, highest_note, res_factor=1):
-    num_files = len(files_dir)        
-        
+    num_files = len(files_dir)
     piano_roll = np.zeros((num_files, ticks, highest_note-lowest_note+1), dtype=np.float32)
     
     for i, file_dir in enumerate(files_dir):

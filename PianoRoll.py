@@ -16,6 +16,7 @@ NOTE_OFF = "note_off"
 RES_FACTOR = "res_factor"
 MAX_NOTE = "max_note"
 MIN_NOTE = "min_note"
+TICKS = "ticks"
 MIN_NOTE_INITIALIZER = 10000
 MAX_NOTE_INITIALIZER = 0
 MAX_TICK_INITIALIZER = 0
@@ -116,22 +117,46 @@ class PianoRoll(object):
                 notes.append([msg.note, start_time, current_time - start_time])
         return (current_time, notes, start_time_tracker)
 
-
-
-    @staticmethod
-    def generate_tracker(min_note, max_note):
-        return [0] * (max_note - min_note + 1)
-
     def generate_piano_roll_func(self):
-        # piano_roll = np.zeros((len(self.files), self.ticks, self.max_note-self.min_note+1), dtype=np.float32)
         configs = {
             RES_FACTOR : self.res_factor,
             MAX_NOTE : self.max_note,
             MIN_NOTE : self.min_note
         }
-        notes_on_off = map(partial(PianoRoll.get_note_info, configs=configs),
-                           self.files)
-        return notes_on_off
+        files_notes_on_length = map(partial(PianoRoll.get_note_info, configs=configs),
+                                    self.files)
+        # file_notes_array = np.array(files_notes_on_length, dtype=np.float32)
+        roll_configs = {
+            TICKS : self.ticks,
+            MAX_NOTE: self.max_note,
+            MIN_NOTE: self.min_note
+        }
+        piano_roll_collection = map(partial(PianoRoll.piano_notes_wrapper, configs=roll_configs),
+                                    files_notes_on_length)
+        # for i in range(len(piano_roll_collection)):
+        #     print(piano_roll_collection[i].shape)
+        final = np.vstack(piano_roll_collection)
+        print(final.shape)
+        return final
+
+    @staticmethod
+    def piano_notes_wrapper(notes_per_file, configs):
+        piano_roll_per_file = np.zeros((1, configs[TICKS], configs[MAX_NOTE]-configs[MIN_NOTE]+1), dtype=np.float32)
+        return reduce(partial(PianoRoll.enter_piano_notes, min_note=configs[MIN_NOTE]),
+               notes_per_file,
+               piano_roll_per_file)
+
+    @staticmethod
+    def enter_piano_notes(piano_roll, msg, min_note):
+        """
+        Update the piano_roll with the stats from notes
+        :param piano_roll:
+        :param note_stat:
+        :param configs:
+        :return:
+        """
+        piano_roll[0, msg[1]:(msg[1]+int(msg[2]/2)), msg[0]-min_note] = 1
+        return piano_roll
 
     def generate_piano_roll(self):
         piano_roll = np.zeros((len(self.files), self.ticks, self.max_note-self.min_note+1), dtype=np.float32)
