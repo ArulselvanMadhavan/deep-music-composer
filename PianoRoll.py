@@ -12,6 +12,9 @@ from functools import partial
 MIDI_FILE_EXTENSION = "mid"
 NOTE_ON = "note_on"
 NOTE_OFF = "note_off"
+RES_FACTOR = "res_factor"
+MAX_NOTE = "max_note"
+MIN_NOTE = "min_note"
 MIN_NOTE_INITIALIZER = 10000
 MAX_NOTE_INITIALIZER = 0
 MAX_TICK_INITIALIZER = 0
@@ -55,27 +58,28 @@ class PianoRoll(object):
         return stats[0], stats[1], stats[2]
 
     @staticmethod
-    def get_note_info(file_path, res_factor):
+    def get_note_info(file_path, configs):
         mid = MidiFile(file_path)
-        track_notes = map(partial(PianoRoll.get_note_on_off_info, res_factor=res_factor),
+        track_notes = map(partial(PianoRoll.get_note_on_off_info, configs=configs),
                           mid.tracks)
         if len(track_notes) > 1 : #TODO - DEBUG Block Remove later.
             print("More than 1 track in {}".format(file_path))
         return np.vstack(track_notes)
 
     @staticmethod
-    def get_note_on_off_info(track, res_factor):
+    def get_note_on_off_info(track, configs):
         notes = np.zeros((len(track), 3))
-        result = reduce(partial(PianoRoll.parse_midi_message,res_factor=res_factor),
+        start_note_tracker = [0] * (configs[MAX_NOTE] - configs[MIN_NOTE] + 1)
+        result = reduce(partial(PianoRoll.parse_midi_message, configs=configs),
                         track,
                         (0, 0, notes))
         return np.array(notes[:result[0], :]) #Filter non-zero rows(count given by result[0])
 
     @staticmethod
-    def parse_midi_message(result, message, res_factor):
+    def parse_midi_message(result, message, configs):
         index, current_time, notes = result
         if not isinstance(message, MetaMessage):
-            current_time += int(message.time/res_factor)
+            current_time += int(message.time/configs[RES_FACTOR])
             if message.type == NOTE_ON:
                 note_onoff = 1
             elif message.type == NOTE_OFF:
@@ -92,8 +96,13 @@ class PianoRoll(object):
 
     def generate_piano_roll_func(self):
         # piano_roll = np.zeros((len(self.files), self.ticks, self.max_note-self.min_note+1), dtype=np.float32)
-        notes_on_off = map(partial(PianoRoll.get_note_info, res_factor=self.res_factor),
-                         self.files)
+        configs = {
+            RES_FACTOR : self.res_factor,
+            MAX_NOTE : self.max_note,
+            MIN_NOTE : self.min_note
+        }
+        notes_on_off = map(partial(PianoRoll.get_note_info, configs=configs),
+                           self.files)
         return notes_on_off
 
     @staticmethod
