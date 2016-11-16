@@ -60,25 +60,10 @@ class PianoRoll(object):
         return stats[0], stats[1], stats[2]
 
     @staticmethod
-    def get_note_info(file_path, configs):
-        mid = MidiFile(file_path)
-        track_notes = map(partial(PianoRoll.get_note_on_off_info, configs=configs),
-                          mid.tracks)
-        if len(track_notes) > 1 : #TODO - DEBUG Block Remove later.
-            print("More than 1 track in {}".format(file_path))
-        return np.vstack(track_notes)
-
-    @staticmethod
     def get_note_on_off_info(track, configs):
-        # notes = np.zeros((len(track), 3))
-        # result = reduce(partial(PianoRoll.parse_midi_message, configs=configs),
-        #                 track,
-        #                 (0, 0, notes))
-        # return np.array(notes[:result[0], :]) #Filter non-zero rows(count given by result[0])
-
         result = reduce(partial(PianoRoll.get_note_length, configs=configs),
-                track,
-                (0, [], [-1] * (configs[MAX_NOTE] - configs[MIN_NOTE] + 1)))
+                        track,
+                        (0, [], [-1] * (configs[MAX_NOTE] - configs[MIN_NOTE] + 1)))
         return result[1]
 
     @staticmethod
@@ -117,46 +102,51 @@ class PianoRoll(object):
                 notes.append([msg.note, start_time, current_time - start_time])
         return (current_time, notes, start_time_tracker)
 
+    @staticmethod
+    def enter_piano_notes(piano_roll, msg, min_note):
+        piano_roll[0, msg[1]:(msg[1]+int(msg[2]/2)), msg[0]-min_note] = 1
+        return piano_roll
+
+    @staticmethod
+    def get_note_info(file_path, configs):
+        mid = MidiFile(file_path)
+        track_notes = map(partial(PianoRoll.get_note_on_off_info, configs=configs),
+                          mid.tracks)
+        notes_per_file = np.vstack(track_notes)
+        if len(track_notes) > 1 : #TODO - DEBUG Block Remove later.
+            print("More than 1 track in {}".format(file_path))
+        piano_roll_per_file = np.zeros((1, configs[TICKS], configs[MAX_NOTE]-configs[MIN_NOTE]+1), dtype=np.float32)
+        return reduce(partial(PianoRoll.enter_piano_notes, min_note=configs[MIN_NOTE]),
+                      notes_per_file,
+                      piano_roll_per_file)
+
     def generate_piano_roll_func(self):
         configs = {
+            TICKS : self.ticks,
             RES_FACTOR : self.res_factor,
             MAX_NOTE : self.max_note,
             MIN_NOTE : self.min_note
         }
-        files_notes_on_length = map(partial(PianoRoll.get_note_info, configs=configs),
+        final = map(partial(PianoRoll.get_note_info, configs=configs),
                                     self.files)
-        # file_notes_array = np.array(files_notes_on_length, dtype=np.float32)
-        roll_configs = {
-            TICKS : self.ticks,
-            MAX_NOTE: self.max_note,
-            MIN_NOTE: self.min_note
-        }
-        piano_roll_collection = map(partial(PianoRoll.piano_notes_wrapper, configs=roll_configs),
-                                    files_notes_on_length)
-        # for i in range(len(piano_roll_collection)):
-        #     print(piano_roll_collection[i].shape)
-        final = np.vstack(piano_roll_collection)
-        print(final.shape)
-        return final
+        return np.vstack(final)
 
-    @staticmethod
-    def piano_notes_wrapper(notes_per_file, configs):
-        piano_roll_per_file = np.zeros((1, configs[TICKS], configs[MAX_NOTE]-configs[MIN_NOTE]+1), dtype=np.float32)
-        return reduce(partial(PianoRoll.enter_piano_notes, min_note=configs[MIN_NOTE]),
-               notes_per_file,
-               piano_roll_per_file)
+    @staticmethod #TODO - Make this functional
+    def generate_samples(chord_roll, melody_roll, seq_length):
+        chord_roll = np.tile(chord_roll, (1, 2, 1))
+        melody_roll = np.tile(melody_roll, (1, 2, 1))
+        X = []
+        y = []
+        for i, song in enumerate(chord_roll):
+            pos = 0
+            while pos+seq_length < song.shape[0]:
+                sequence = np.array(song[pos:pos+seq_length])
+                X.append(sequence)
+                y.append(melody_roll[i, pos+seq_length])
+                pos += 1
+        return np.array(X), np.array(y)
 
-    @staticmethod
-    def enter_piano_notes(piano_roll, msg, min_note):
-        """
-        Update the piano_roll with the stats from notes
-        :param piano_roll:
-        :param note_stat:
-        :param configs:
-        :return:
-        """
-        piano_roll[0, msg[1]:(msg[1]+int(msg[2]/2)), msg[0]-min_note] = 1
-        return piano_roll
+    # TO BE REMOVED
 
     def generate_piano_roll(self):
         piano_roll = np.zeros((len(self.files), self.ticks, self.max_note-self.min_note+1), dtype=np.float32)
@@ -199,3 +189,29 @@ class PianoRoll(object):
 
                 note_on_length_array.append([message[0], start_time, length])
         return note_on_length_array
+
+    @staticmethod
+    def doubleRoll(roll):
+        double_roll = []
+        for song in roll:
+            double_song = np.zeros((roll.shape[1]*2, roll.shape[2]))
+            double_song[0:roll.shape[1], :] = song
+            double_song[roll.shape[1]:, :] = song
+            double_roll.append(double_song)
+        return np.array(double_roll)
+
+    @staticmethod
+    def createNetInputs(roll, target, seq_length=3072):
+        #roll: 3-dim array with Midi Files as piano roll. Size: (num_samples=num Midi Files, num_timesteps, num_notes)
+        #seq_length: Sequence Length. Length of previous played notes in regard of the current note that is being trained on
+        #seq_length in Midi Ticks. Default is 96 ticks per beat --> 3072 ticks = 8 Bars
+        X = []
+        y = []
+        for i, song in enumerate(roll):
+            pos = 0
+            while pos+seq_length < song.shape[0]:
+                sequence = np.array(song[pos:pos+seq_length])
+                X.append(sequence)
+                y.append(target[i, pos+seq_length])
+                pos += 1
+        return np.array(X), np.array(y)

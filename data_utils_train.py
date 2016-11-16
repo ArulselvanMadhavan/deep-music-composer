@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Nov 26 16:06:49 2015
-
-@author: Konstantin
-"""
 
 from mido import MidiFile, MidiTrack, Message
 from mido import MetaMessage
@@ -96,10 +90,8 @@ def createNetInputs(roll, target, seq_length=3072):
     #roll: 3-dim array with Midi Files as piano roll. Size: (num_samples=num Midi Files, num_timesteps, num_notes)
     #seq_length: Sequence Length. Length of previous played notes in regard of the current note that is being trained on
     #seq_length in Midi Ticks. Default is 96 ticks per beat --> 3072 ticks = 8 Bars
-    
     X = []
     y = []
-    
     for i, song in enumerate(roll):
         pos = 0
         while pos+seq_length < song.shape[0]:
@@ -107,8 +99,6 @@ def createNetInputs(roll, target, seq_length=3072):
             X.append(sequence)
             y.append(target[i, pos+seq_length])
             pos += 1
-
-    
     return np.array(X), np.array(y)
     
 
