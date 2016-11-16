@@ -7,6 +7,7 @@ from mido import MidiFile, MidiTrack, Message
 from mido import MetaMessage
 from Utils import Utils
 from functools import partial
+import warnings
 
 # GLOBAL CONSTANTS
 MIDI_FILE_EXTENSION = "mid"
@@ -68,12 +69,16 @@ class PianoRoll(object):
 
     @staticmethod
     def get_note_on_off_info(track, configs):
-        notes = np.zeros((len(track), 3))
-        start_note_tracker = [0] * (configs[MAX_NOTE] - configs[MIN_NOTE] + 1)
-        result = reduce(partial(PianoRoll.parse_midi_message, configs=configs),
-                        track,
-                        (0, 0, notes))
-        return np.array(notes[:result[0], :]) #Filter non-zero rows(count given by result[0])
+        # notes = np.zeros((len(track), 3))
+        # result = reduce(partial(PianoRoll.parse_midi_message, configs=configs),
+        #                 track,
+        #                 (0, 0, notes))
+        # return np.array(notes[:result[0], :]) #Filter non-zero rows(count given by result[0])
+
+        result = reduce(partial(PianoRoll.get_note_length, configs=configs),
+                track,
+                (0, [], [-1] * (configs[MAX_NOTE] - configs[MIN_NOTE] + 1)))
+        return result[1]
 
     @staticmethod
     def parse_midi_message(result, message, configs):
@@ -91,6 +96,29 @@ class PianoRoll(object):
         return (index, current_time, notes)
 
     @staticmethod
+    def get_note_length(result, msg, configs):
+        """
+        :param result: (current_time, notes, start_time_tracker)
+        :param msg: MidiMessage
+        :param configs:
+        :return:
+        """
+        current_time, notes, start_time_tracker = result
+        if not isinstance(msg, MetaMessage):
+            resolved_time = int(msg.time/configs[RES_FACTOR])
+            current_time += resolved_time
+            if msg.type == NOTE_ON:
+                start_time_tracker[msg.note - configs[MIN_NOTE]] = current_time
+            elif msg.type == NOTE_OFF:
+                start_time = start_time_tracker[msg.note - configs[MIN_NOTE]]
+                if start_time == -1:
+                    warnings.warn("End note occurs without a start")
+                notes.append([msg.note, start_time, current_time - start_time])
+        return (current_time, notes, start_time_tracker)
+
+
+
+    @staticmethod
     def generate_tracker(min_note, max_note):
         return [0] * (max_note - min_note + 1)
 
@@ -104,10 +132,6 @@ class PianoRoll(object):
         notes_on_off = map(partial(PianoRoll.get_note_info, configs=configs),
                            self.files)
         return notes_on_off
-
-    @staticmethod
-    # def compute_on_duration(notes_on_off):
-    #     filter(notes_on_off)
 
     def generate_piano_roll(self):
         piano_roll = np.zeros((len(self.files), self.ticks, self.max_note-self.min_note+1), dtype=np.float32)
